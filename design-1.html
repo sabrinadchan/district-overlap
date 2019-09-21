@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title></title>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script type="text/javascript" src="static/jsts.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.1/dist/leaflet.css"
+   integrity="sha512-Rksm5RenBEKSKFjgI3a41vrjkw4EVPlJ3+OiI65vTjIdo9brlAacEuKOiQ5OFh7cOI1bkDwLqdLw3Zg0cRJAAQ=="
+   crossorigin=""/>
+ <!-- Make sure you put this AFTER Leaflet's CSS -->
+ <script src="https://unpkg.com/leaflet@1.3.1/dist/leaflet.js"
+   integrity="sha512-/Nsx9X4HebavoBvEBuyp3I7od5tA0UzAxs+j83KgC8PU0kgB4XiK4Lfe4y4cgBtaRJQEIFCW+oC506aPT2L1zw=="
+   crossorigin=""></script>
+<script src="https://stamen-maps.a.ssl.fastly.net/js/tile.stamen.js"></script>
+<style>
+
+html, body {
+  margin: 0;
+}
+
+#map {
+  height: 720px;
+  width: 100%;
+}
+
+path {
+  fill: none;
+  stroke-width: 2px;
+}
+
+.selected {
+  fill: none;
+  fill-opacity: 0.3;
+}
+
+.selected2 {
+  fill: none;
+  fill-opacity: 0.3;
+}
+
+.selected.selected2 {
+  fill: purple;
+  fill-opacity: 0.3;
+}
+
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var pi = Math.PI,
+    tau = 2 * pi;
+
+var width = window.innerWidth,
+    height = window.innerHeight-5,
+    rTree = new jsts.index.strtree.STRtree()
+    geometryFactory = new jsts.geom.GeometryFactory()
+    reader = new jsts.io.GeoJSONReader()
+
+// initialize map
+var map = new L.Map("map", {
+    center: [41.87, -87.62],
+    zoom: 11,
+    zoomControl: false,
+    attributionControl: false, // attribution in footer
+});
+
+map.addLayer(new L.StamenTileLayer("toner"));
+
+// add svg overlay to map
+L.svg().addTo(map); // render all paths with SVG
+
+var svg = d3.select("#map").select("svg");
+
+d3.queue()
+  .defer(d3.json, "districts/wards.topojson")
+  .defer(d3.json, "districts/ilhouse.topojson")
+  .defer(d3.json, "districts/ushouse.topojson")
+  .await(ready);
+
+function ready(error, wards, ilhouse, ushouse) {
+  var transform = d3.geoTransform({point: projectPoint}),
+      path = d3.geoPath().projection(transform);
+
+  wards = svg.selectAll("path.ward")
+      .data(topojson.feature(wards, wards.objects.wards).features)
+    .enter().append("path")
+      .attr("class","ward-outline")
+      .attr("stroke", "black")
+      .attr("d", d => path(d.geometry))
+
+  wards.append("title")
+      .text(d => d.properties.WARD)
+      .attr("class", "ward")
+      .each(d => {
+        d.polygon = reader.read(d.geometry)
+        rTree.insert(d.polygon.getEnvelopeInternal(), d)
+      })
+
+  var districts = topojson.feature(ilhouse, ilhouse.objects.districts),
+      filtered = districts.features.filter(d => d.properties.NAME == "4");
+
+  var extent = filtered[0].geometry.coordinates[0];
+
+  district = svg.selectAll("path.sl")
+      .data(filtered)
+    .enter().append("path")
+      .attr("class", "sl-outline")
+      .attr("stroke", "red")
+      .attr("d", d => path(d.geometry))
+
+  wards.each(d => d.selected = false);
+
+  var searchPolygon = reader.read(filtered[0].geometry)
+
+  rTree.query(searchPolygon.getEnvelopeInternal()).array_.forEach(function(d) {
+    d.polygon.intersects(searchPolygon) ? d.selected = true : d.selected = false
+  })
+
+  wards
+    .classed("selected", d => d.selected)
+
+  var cds = topojson.feature(ushouse, ushouse.objects.districts),
+      filtered = cds.features.filter(d => d.properties.CD115FP == "4");
+
+  var extent = filtered[0].geometry.coordinates[0];
+
+  cd = svg.selectAll("path.sl")
+      .data(filtered)
+    .enter().append("path")
+      .attr("class", "sl-outline")
+      .attr("stroke", "blue")
+      .attr("d", d => path(d.geometry))
+
+  wards.each(d => d.selected2 = false)
+
+  var searchPolygon = reader.read(filtered[0].geometry)
+
+  rTree.query(searchPolygon.getEnvelopeInternal()).array_.forEach(function(d) {
+    d.polygon.intersects(searchPolygon) ? d.selected2 = true : d.selected2 = false
+  })
+
+  wards.classed("selected2", d => d.selected2)
+
+  map.on("moveend", reset);
+  reset();
+  
+  // reposition SVG on map on zoom/translate
+  function reset() {
+    wards.attr("d", path);
+    district.attr("d", path);
+    cd.attr("d", path);
+  }
+};
+
+function projectPoint(x, y) {
+  var point = map.latLngToLayerPoint(new L.LatLng(y, x));
+  this.stream.point(point.x, point.y);
+}
+</script>
+</body>
