@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title></title>
+<style>
+
+html, body {
+  margin: 0;
+}
+
+path {
+  fill: none;
+}
+
+.selected {
+  fill: red;
+  fill-opacity: 0.3;
+}
+
+.selected2 {
+  fill: blue;
+  fill-opacity: 0.3;
+}
+
+.selected.selected2 {
+  fill: purple;
+  fill-opacity: 0.3;
+}
+
+</style>
+</head>
+<body>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script type="text/javascript" src="static/jsts.min.js"></script>
+<script>
+var pi = Math.PI,
+    tau = 2 * pi;
+
+var width = window.innerWidth,
+    height = window.innerHeight-5,
+    wards,
+    rTree = new jsts.index.strtree.STRtree()
+    geometryFactory = new jsts.geom.GeometryFactory()
+    reader = new jsts.io.GeoJSONReader()
+
+var projection = d3.geoMercator()
+    .scale(1 / tau)
+    .translate([0, 0]);
+
+var path = d3.geoPath()
+    .projection(projection)
+
+var svg = d3.select("body")
+    .append("svg")
+    .attr("width", width)
+    .attr("height", height)
+
+d3.queue()
+  .defer(d3.json, "districts/wards.topojson")
+  .defer(d3.json, "districts/ilhouse.topojson")
+  .defer(d3.json, "districts/ushouse.topojson")
+  .await(ready);
+
+function ready(error, wards, ilhouse, ushouse) {
+  var b = path.projection(projection).bounds(topojson.feature(wards, wards.objects.wards));
+      s = 0.95 / Math.max((b[1][0] - b[0][0]) / width, (b[1][1] - b[0][1]) / height),
+      t = [(width - s * (b[1][0] + b[0][0])) / 2, (height - s * (b[1][1] + b[0][1])) / 2];
+
+  projection
+    .scale(s / tau)
+    .translate([t[0], t[1]]);
+
+  wards = svg.selectAll("path.ward")
+    .data(topojson.feature(wards, wards.objects.wards).features)
+  .enter().append("path")
+    .attr("class","ward-outline")
+    .attr("stroke", "black")
+    .attr("d", d => path(d.geometry))
+
+  wards.append("svg:title")
+  .text(d => d.properties.WARD)
+  .attr("class", "ward")
+  .each(d => {
+    d.polygon = reader.read(d.geometry)
+    rTree.insert(d.polygon.getEnvelopeInternal(), d)
+  })
+
+  var districts = topojson.feature(ilhouse, ilhouse.objects.districts),
+      filtered = districts.features.filter(d => d.properties.NAME == "4");
+
+  var extent = filtered[0].geometry.coordinates[0];
+
+  district = svg.selectAll("path.sl")
+      .data(filtered)
+    .enter().append("path")
+      .attr("class", "sl-outline")
+      .attr("stroke", "red")
+      .attr("d", d => path(d.geometry))
+
+  wards
+    .each(function(d) { d.selected = false })
+
+  var searchPolygon = reader.read(filtered[0].geometry)
+
+  rTree.query(searchPolygon.getEnvelopeInternal()).array_.forEach(function(d) {
+    d.polygon.intersects(searchPolygon) ? d.selected = true : d.selected = false
+  })
+
+  wards
+    .classed("selected", d => d.selected)
+
+  var cds = topojson.feature(ushouse, ushouse.objects.districts),
+      filtered = cds.features.filter(d => d.properties.CD115FP == "4");
+
+  var extent = filtered[0].geometry.coordinates[0];
+
+  cd = svg.selectAll("path.sl")
+      .data(filtered)
+    .enter().append("path")
+      .attr("class", "sl-outline")
+      .attr("stroke", "blue")
+      .attr("d", d => path(d.geometry))
+
+  wards
+    .each(function(d) { d.selected2 = false })
+
+  var searchPolygon = reader.read(filtered[0].geometry)
+
+  rTree.query(searchPolygon.getEnvelopeInternal()).array_.forEach(function(d) {
+    d.polygon.intersects(searchPolygon) ? d.selected2 = true : d.selected2 = false
+  })
+
+  wards
+    .classed("selected2", d => d.selected2)
+};
+
+</script>
+</body>
