@@ -79,10 +79,9 @@ var map = new L.Map("map", {
     center: [41.87, -87.62],
     zoom: 11,
     zoomControl: false,
-    attributionControl: false, // attribution in footer
 });
 
-map.addLayer(new L.StamenTileLayer("toner"));
+map.addLayer(new L.StamenTileLayer("toner-lite"));
 
 // add svg overlay to map
 L.svg().addTo(map); // render all paths with SVG
