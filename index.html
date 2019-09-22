@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title></title>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script type="text/javascript" src="static/jsts.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.1/dist/leaflet.css"
+   integrity="sha512-Rksm5RenBEKSKFjgI3a41vrjkw4EVPlJ3+OiI65vTjIdo9brlAacEuKOiQ5OFh7cOI1bkDwLqdLw3Zg0cRJAAQ=="
+   crossorigin=""/>
+ <!-- Make sure you put this AFTER Leaflet's CSS -->
+ <script src="https://unpkg.com/leaflet@1.3.1/dist/leaflet.js"
+   integrity="sha512-/Nsx9X4HebavoBvEBuyp3I7od5tA0UzAxs+j83KgC8PU0kgB4XiK4Lfe4y4cgBtaRJQEIFCW+oC506aPT2L1zw=="
+   crossorigin=""></script>
+<script src="https://stamen-maps.a.ssl.fastly.net/js/tile.stamen.js"></script>
+<style>
+
+html, body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+#selection {
+  margin: 20px 10px;
+}
+
+#caption {
+  height: 50px;
+  font-size: 20px;
+  margin: 0px 10px;
+}
+
+#map {
+  height: 720px;
+  width: 100%;
+}
+
+path {
+  stroke-width: 2px;
+}
+
+path.base-path {
+  fill: none;
+}
+
+.selected {
+  stroke: red;
+  fill: red;
+  fill-opacity: 0.3;
+}
+
+.selected2 {
+  stroke: blue;
+  fill: blue;
+  fill-opacity: 0.3;
+}
+
+.selected.selected2 {
+  stroke: purple;
+  fill-opacity: 0;
+}
+
+.leaflet-overlay-pane svg path{
+  pointer-events: auto;
+}
+
+</style>
+</head>
+<body>
+<div id="selection">
+  <p>
+    <span title="Select base districts"><b>Base Districts</b> <select class="dropdown" id="base-select"></select></span>&nbsp;&nbsp;
+    <span><b>Show base districts</b><input type="checkbox" id="base-checkbox" value="show"></span><br>
+    <br>
+    <span title="Find intersection with"><b>Intersect with</b> <select class="dropdown" id="dist-type1-select"></select></span>&nbsp;&nbsp;
+    <span title="District"><b>District</b> <select class="dropdown" id="dist1-select"></select></span>
+    <br>&nbsp;&nbsp;<b>AND</b><br>
+    <span title="Find second intersection with"><b>Intersect with</b> <select class="dropdown" id="dist-type2-select"></select></span>&nbsp;&nbsp;
+    <span title="District"><b>District</b> <select class="dropdown" id="dist2-select"></select>
+  </p>
+</div>
+<div id="caption"></div>
+<div id="map"></div>
+<script>
+// topology variables
+var baseLayer,
+    dist1,
+    dist2;
+
+// JSTS variables
+var rTree,
+    rTree2,
+    geometryFactory = new jsts.geom.GeometryFactory(),
+    reader = new jsts.io.GeoJSONReader(),
+    writer = new jsts.io.GeoJSONWriter();
+
+var districts = {
+  "U.S. Congressional District": {"file": "ushouse.topojson", "objects": "districts", "property": "CD115FP"},
+  "State Senate District": {"file": "ilsenate.topojson", "objects": "districts", "property": "NAME"},
+  "State Assembly District": {"file": "ilhouse.topojson", "objects": "districts", "property": "NAME"},
+  "County Commissioner District": {"file": "cookcommissioner.topojson", "objects": "commissioners", "property": "district_n"},
+  "Community Area": {"file": "communities.topojson", "objects": "communities", "property": "community"},
+  "Chicago Ward": {"file": "wards.topojson", "objects": "wards", "property": "ward"},
+  "Precinct": {"file": "cookprecincts.topojson", "objects": "precincts", "property": "full_text"}
+}
+
+// initialize map
+var map = new L.Map("map", {
+    center: [41.87, -87.62],
+    zoom: 11,
+});
+
+map.addLayer(new L.StamenTileLayer("toner-lite"));
+
+// add svg overlay to map
+L.svg().addTo(map); // render all paths with SVG
+
+var svg = d3.select("#map").select("svg");
+
+// dropdown variable names
+var baseSelect = d3.select("#base-select"),
+    distType1Select = d3.select("#dist-type1-select"),
+    dist1Select = d3.select("#dist1-select"),
+    distType2Select = d3.select("#dist-type2-select"),
+    dist2Select = d3.select("#dist2-select");
+
+// populate base district with options for each available file
+baseSelect.selectAll("option.base-option")
+    .data(Object.keys(districts))
+  .enter().append("option")
+    .attr("value", d => d)
+    .text(d => d);
+
+baseSelect.node().selectedIndex = -1;
+
+// upon selecting base, clear all other dropdown menus.
+// populate district type 1 dropdown with all available
+// districts except the one chosen as the base
+baseSelect.on("change", () => {
+  d3.selectAll(".dist-type1-option").remove();
+  d3.selectAll(".dist1-option").remove();
+  d3.selectAll(".dist-type2-option").remove();
+  d3.selectAll(".dist2-option").remove();
+  d3.select("#base-checkbox").property("checked", false)
+
+  var selectedBase = baseSelect.node().value
+  distType1Select.selectAll("option.dist-type1-option")
+    .data(Object.keys(districts).filter(d => d != selectedBase))
+  .enter().append("option")
+    .attr("class", "dist-type1-option")
+    .attr("value", d => d)
+    .text(d => d);
+
+  distType1Select.node().selectedIndex = -1;
+});
+
+
+distType1Select.on("change", () => {
+  d3.selectAll(".dist1-option").remove();
+  d3.selectAll(".dist-type2-option").remove();
+  d3.selectAll(".dist2-option").remove();
+  distType2Select.node().selectedIndex = -1;
+
+  var selectedBase = baseSelect.node().value,
+      selectedDistType1 = distType1Select.node().value;
+
+  d3.queue()
+    .defer(d3.json, "districts/" + districts[selectedBase].file)
+    .defer(d3.json, "districts/" + districts[selectedDistType1].file)
+    .await(ready);
+
+  function ready(error, base, distType1) {
+    var d1_ = districts[selectedDistType1];
+
+    dist1Select.selectAll("option.dist1-option")
+        .data(topojson.feature(distType1, distType1.objects[d1_.objects]).features.sort((a,b) => +a.properties[d1_.property] - +b.properties[d1_.property]))
+      .enter().append("option")
+        .attr("class", "dist1-option")
+        .attr("value", d => d.properties[d1_.property])
+        .text(d => d.properties[d1_.property]);
+
+    dist1Select.node().selectedIndex = -1;
+
+    dist1Select.on("change", () => {
+      drawMap(base, distType1);
+
+      distType2Select.selectAll("option.dist-type2-option")
+          .data(Object.keys(districts).filter(d => (d != selectedBase) & (d != selectedDistType1)))
+        .enter().append("option")
+          .attr("class", "dist-type2-option")
+          .attr("value", d => d)
+          .text(d => d);
+
+      distType2Select.node().selectedIndex = -1;
+      d3.selectAll(".dist2-option").remove();
+    })
+  }
+
+})
+
+distType2Select.on("change", () => {
+  d3.selectAll(".dist2-option").remove();
+
+  var selectedBase = baseSelect.node().value,
+      selectedDistType1 = distType1Select.node().value;
+      selectedDistType2 = distType2Select.node().value;
+
+  d3.queue()
+    .defer(d3.json, "districts/" + districts[selectedBase].file)
+    .defer(d3.json, "districts/" + districts[selectedDistType1].file)
+    .defer(d3.json, "districts/" + districts[selectedDistType2].file)
+    .await(ready);
+
+  function ready(error, base, distType1, distType2) {
+    var d1_ = districts[selectedDistType1],
+        d2_ = districts[selectedDistType2];
+
+    dist2Select.selectAll("option.dist2-option")
+        .data(topojson.feature(distType2, distType2.objects[d2_.objects]).features.sort((a,b) => +a.properties[d2_.property] - +b.properties[d2_.property]))
+      .enter().append("option")
+        .attr("class", "dist2-option")
+        .attr("value", d => d.properties[d2_.property])
+        .text(d => d.properties[d2_.property]);
+
+    dist2Select.node().selectedIndex = -1;
+
+    dist2Select.on("change", () => {
+      drawMap(base, distType1, distType2);
+    })
+  }
+
+})
+
+function drawMap(base, distType1, distType2) {
+  d3.selectAll("path").remove();
+  rTree = new jsts.index.strtree.STRtree()
+  if (distType2) rTree2 = new jsts.index.strtree.STRtree();
+
+  var transform = d3.geoTransform({point: projectPoint}),
+      path = d3.geoPath().projection(transform);
+
+  var b_ = districts[baseSelect.node().value];
+  var baseTopo = topojson.feature(base, base.objects[b_.objects]).features;
+
+  basePath = svg.selectAll("path.ward")
+      .data(baseTopo)
+    .enter().append("path")
+      .attr("class","base-path")
+      .attr("stroke", "none");
+
+  d3.select("#base-checkbox").on("change", function(d) {
+    d3.select(this).property("checked") ? basePath.attr("stroke", "black") : basePath.attr("stroke", "none")
+  });
+
+  var d_ = districts[distType1Select.node().value];
+  var feat = topojson.feature(distType1, distType1.objects[d_.objects]),
+      filtered = feat.features.filter(d => d.properties[d_.property] == dist1Select.node().value);
+
+  district = svg.selectAll("path.d1")
+      .data(filtered)
+    .enter().append("path")
+      .attr("class", "d1-path")
+      .attr("stroke", "red")
+      .attr("fill", "red")
+      .attr("fill-opacity", 0.3)
+  
+  baseTopo.map(d => {
+    d.polygon = reader.read(d.geometry)
+    rTree.insert(d.polygon.getEnvelopeInternal(), d)
+  });
+
+  var intersections = findIntersection(distType1, dist1Select.node().value, "selected", rTree, false);
+
+  // if second district selected, draw on map and find 
+  // intersection with base and other district
+  if (distType2) {
+    var d2_ = districts[distType2Select.node().value];
+
+    var feat2 = topojson.feature(distType2, distType2.objects[d2_.objects]),
+        filtered2 = feat2.features.filter(d => d.properties[d2_.property] == dist2Select.node().value);
+
+    district2 = svg.selectAll("path.d2")
+        .data(filtered2)
+      .enter().append("path")
+        .attr("class", "d2-path")
+        .attr("stroke", "blue")
+        .attr("fill", "blue")
+        .attr("fill-opacity", 0.3)
+
+    intersections.map(d => {
+      d.polygon = reader.read(d.geometry)
+      rTree2.insert(d.polygon.getEnvelopeInternal(), d)
+    })
+
+    intersections = findIntersection(distType2, dist2Select.node().value, "selected selected2", rTree2, true);
+  }
+
+  // draw intersected geometry
+  var intersectionsPath = svg.selectAll("path.selected.selected2")
+      .data(intersections)
+    .enter().append("path")
+      .attr("class","intersections-path selected selected2")
+      .on("mouseover", function(d) {
+        d3.select(this).style("fill-opacity", 0.3);
+
+        d3.select("#caption").html(baseSelect.node().value + " "
+          + d.properties[b_.property]
+          + " overlaps with "
+          + distType1Select.node().value + " "
+          + dist1Select.node().value
+          + (distType2 ? " and " + distType2Select.node().value + " " + dist2Select.node().value : "")
+        )
+      })
+      .on("mouseout", function(d) {
+        d3.select(this).style("fill-opacity", 0);
+      })
+
+  /*
+  var labels = svg.selectAll("text.labels")
+      .data(intersections)
+    .enter().append("text")
+      .attr("text-anchor", "middle")
+      .text(d => d.properties[b_.property])
+      .style("font-size", "16px");*/
+
+  // center map on feature
+  var bbox = d3.geoBounds({type: "FeatureCollection", "features": filtered});
+  bbox.forEach(b => b.reverse());
+  map.flyToBounds(bbox)
+
+  map.on("moveend", reset);
+  reset();
+  
+  // reposition SVG on map on zoom/translate
+  function reset() {
+    basePath.attr("d", path);
+    district.attr("d", path)
+    if (distType2) district2.attr("d", path);
+    intersectionsPath.attr("d", d => {var x = path(d); if (x != "Z") return x})
+    /*
+    labels.attr("transform", d => {
+      var centroid = d3.geoCentroid(d),
+          x = centroid[0],
+          y = centroid[1]
+          point = map.latLngToLayerPoint(new L.LatLng(y, x));
+          return "translate("+ point.x +","+ point.y +")";
+    })*/
+  }
+};
+
+function projectPoint(x, y) {
+  var point = map.latLngToLayerPoint(new L.LatLng(y, x));
+  this.stream.point(point.x, point.y);
+}
+
+function findIntersection(topo, propValue, className, rt, second) {
+  var d_ = second ? districts[distType2Select.node().value] : districts[distType1Select.node().value],
+      featName = d_.objects
+      propName = d_.property;
+
+  var feat = topojson.feature(topo, topo.objects[featName]),
+      filtered = feat.features.filter(d => d.properties[propName] == propValue);
+
+  var searchPolygon = reader.read(filtered[0].geometry)
+
+  var intersections = [];
+  rt.query(searchPolygon.getEnvelopeInternal()).array_.forEach(function(d) {
+    var intersection = d.polygon.intersection(searchPolygon);
+    intersections.push({"type": "Feature", "geometry": intersection, "properties": d.properties})
+  })
+
+  intersectionsGeoJSON = intersections.map(d => ({"type": "Feature", "geometry": writer.write(d.geometry), "properties": d.properties}));
+  return intersectionsGeoJSON
+}
+
+</script>
+</body>
