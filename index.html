@@ -117,6 +117,9 @@ L.svg().addTo(map); // render all paths with SVG
 
 var svg = d3.select("#map").select("svg");
 
+var transform = d3.geoTransform({point: projectPoint}),
+    path = d3.geoPath().projection(transform);
+
 // dropdown variable names
 var baseSelect = d3.select("#base-select"),
     distType1Select = d3.select("#dist-type1-select"),
@@ -152,6 +155,31 @@ baseSelect.on("change", () => {
     .text(d => d);
 
   distType1Select.node().selectedIndex = -1;
+
+  d3.queue()
+    .defer(d3.json, "districts/" + districts[selectedBase].file)
+    .await(ready);
+
+  function ready(error, base) {
+    d3.selectAll("path").remove();
+
+    var b_ = districts[selectedBase];
+    var baseTopo = topojson.feature(base, base.objects[b_.objects]).features;
+
+    basePath = svg.selectAll(".base-path")
+        .data(baseTopo)
+      .enter().append("path")
+        .attr("class","base-path")
+        .attr("stroke", "black");
+
+    map.on("moveend", reset);
+    reset();
+  
+    // reposition SVG on map on zoom/translate
+    function reset() {
+      basePath.attr("d", path);
+    }
+  }
 });
 
 
@@ -236,13 +264,10 @@ function drawMap(base, distType1, distType2) {
   rTree = new jsts.index.strtree.STRtree()
   if (distType2) rTree2 = new jsts.index.strtree.STRtree();
 
-  var transform = d3.geoTransform({point: projectPoint}),
-      path = d3.geoPath().projection(transform);
-
   var b_ = districts[baseSelect.node().value];
   var baseTopo = topojson.feature(base, base.objects[b_.objects]).features;
 
-  basePath = svg.selectAll("path.ward")
+  basePath = svg.selectAll(".base-path")
       .data(baseTopo)
     .enter().append("path")
       .attr("class","base-path")
