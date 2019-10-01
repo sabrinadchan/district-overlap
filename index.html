@@ -39,10 +39,6 @@ path {
   stroke-width: 2px;
 }
 
-path.base-path {
-  fill: none;
-}
-
 .selected {
   stroke: red;
   fill: red;
@@ -95,13 +91,12 @@ var rTree,
     writer = new jsts.io.GeoJSONWriter();
 
 var districts = {
-  "U.S. Congressional District": {"file": "ushouse.topojson", "objects": "districts", "property": "CD115FP"},
-  "State Senate District": {"file": "ilsenate.topojson", "objects": "districts", "property": "NAME"},
-  "State Assembly District": {"file": "ilhouse.topojson", "objects": "districts", "property": "NAME"},
-  "County Commissioner District": {"file": "cookcommissioner.topojson", "objects": "commissioners", "property": "district_n"},
-  "Community Area": {"file": "communities.topojson", "objects": "communities", "property": "community"},
-  "Chicago Ward": {"file": "wards.topojson", "objects": "wards", "property": "ward"},
-  "Precinct": {"file": "cookprecincts.topojson", "objects": "precincts", "property": "full_text"}
+  "U.S. Congressional District": "ushouse.topojson",
+  "State Senate District": "ilsenate.topojson",
+  "State Assembly District": "ilhouse.topojson",
+  "County Commissioner District": "cookcommissioner.topojson",
+  "Community Area": "communities.topojson",
+  "Chicago Ward": "wards.topojson",
 }
 
 // initialize map
@@ -119,6 +114,13 @@ var svg = d3.select("#map").select("svg");
 
 var transform = d3.geoTransform({point: projectPoint}),
     path = d3.geoPath().projection(transform);
+
+ //["#F68481","#CF9FD3","#5CC7DD","#72D793","#E6CD58"]
+  
+var color = d3.scaleOrdinal()
+    .domain([0,1,2,3])
+    .range(["#F68481","#CF9FD3","#5CC7DD","#72D793"])
+    .unknown("#76797E");
 
 // dropdown variable names
 var baseSelect = d3.select("#base-select"),
@@ -157,20 +159,21 @@ baseSelect.on("change", () => {
   distType1Select.node().selectedIndex = -1;
 
   d3.queue()
-    .defer(d3.json, "districts/" + districts[selectedBase].file)
+    .defer(d3.json, "districts/" + districts[selectedBase])
     .await(ready);
 
   function ready(error, base) {
     d3.selectAll("path").remove();
 
-    var b_ = districts[selectedBase];
-    var baseTopo = topojson.feature(base, base.objects[b_.objects]).features;
+    var baseTopo = topojson.feature(base, base.objects.districts).features;
 
     basePath = svg.selectAll(".base-path")
         .data(baseTopo)
       .enter().append("path")
         .attr("class","base-path")
-        .attr("stroke", "black");
+        .attr("stroke", "black")
+        .attr("fill", d => color(d.properties.c))
+        .attr("fill-opacity", 0.3)
 
     map.on("moveend", reset);
     reset();
@@ -193,19 +196,17 @@ distType1Select.on("change", () => {
       selectedDistType1 = distType1Select.node().value;
 
   d3.queue()
-    .defer(d3.json, "districts/" + districts[selectedBase].file)
-    .defer(d3.json, "districts/" + districts[selectedDistType1].file)
+    .defer(d3.json, "districts/" + districts[selectedBase])
+    .defer(d3.json, "districts/" + districts[selectedDistType1])
     .await(ready);
 
   function ready(error, base, distType1) {
-    var d1_ = districts[selectedDistType1];
-
     dist1Select.selectAll("option.dist1-option")
-        .data(topojson.feature(distType1, distType1.objects[d1_.objects]).features.sort((a,b) => +a.properties[d1_.property] - +b.properties[d1_.property]))
+        .data(topojson.feature(distType1, distType1.objects.districts).features.sort((a,b) => +a.properties.district - +b.properties.district))
       .enter().append("option")
         .attr("class", "dist1-option")
-        .attr("value", d => d.properties[d1_.property])
-        .text(d => d.properties[d1_.property]);
+        .attr("value", d => d.properties.district)
+        .text(d => d.properties.district);
 
     dist1Select.node().selectedIndex = -1;
 
@@ -234,21 +235,18 @@ distType2Select.on("change", () => {
       selectedDistType2 = distType2Select.node().value;
 
   d3.queue()
-    .defer(d3.json, "districts/" + districts[selectedBase].file)
-    .defer(d3.json, "districts/" + districts[selectedDistType1].file)
-    .defer(d3.json, "districts/" + districts[selectedDistType2].file)
+    .defer(d3.json, "districts/" + districts[selectedBase])
+    .defer(d3.json, "districts/" + districts[selectedDistType1])
+    .defer(d3.json, "districts/" + districts[selectedDistType2])
     .await(ready);
 
   function ready(error, base, distType1, distType2) {
-    var d1_ = districts[selectedDistType1],
-        d2_ = districts[selectedDistType2];
-
     dist2Select.selectAll("option.dist2-option")
-        .data(topojson.feature(distType2, distType2.objects[d2_.objects]).features.sort((a,b) => +a.properties[d2_.property] - +b.properties[d2_.property]))
+        .data(topojson.feature(distType2, distType2.objects.districts).features.sort((a,b) => +a.properties.district - +b.properties.district))
       .enter().append("option")
         .attr("class", "dist2-option")
-        .attr("value", d => d.properties[d2_.property])
-        .text(d => d.properties[d2_.property]);
+        .attr("value", d => d.properties.district)
+        .text(d => d.properties.district);
 
     dist2Select.node().selectedIndex = -1;
 
@@ -264,22 +262,21 @@ function drawMap(base, distType1, distType2) {
   rTree = new jsts.index.strtree.STRtree()
   if (distType2) rTree2 = new jsts.index.strtree.STRtree();
 
-  var b_ = districts[baseSelect.node().value];
-  var baseTopo = topojson.feature(base, base.objects[b_.objects]).features;
+  var baseTopo = topojson.feature(base, base.objects.districts).features;
 
   basePath = svg.selectAll(".base-path")
       .data(baseTopo)
     .enter().append("path")
       .attr("class","base-path")
-      .attr("stroke", "none");
+      .attr("stroke", "none")
+      .attr("fill", "none");
 
   d3.select("#base-checkbox").on("change", function(d) {
     d3.select(this).property("checked") ? basePath.attr("stroke", "black") : basePath.attr("stroke", "none")
   });
 
-  var d_ = districts[distType1Select.node().value];
-  var feat = topojson.feature(distType1, distType1.objects[d_.objects]),
-      filtered = feat.features.filter(d => d.properties[d_.property] == dist1Select.node().value);
+  var feat = topojson.feature(distType1, distType1.objects.districts),
+      filtered = feat.features.filter(d => d.properties.district == dist1Select.node().value);
 
   district = svg.selectAll("path.d1")
       .data(filtered)
@@ -299,10 +296,8 @@ function drawMap(base, distType1, distType2) {
   // if second district selected, draw on map and find 
   // intersection with base and other district
   if (distType2) {
-    var d2_ = districts[distType2Select.node().value];
-
-    var feat2 = topojson.feature(distType2, distType2.objects[d2_.objects]),
-        filtered2 = feat2.features.filter(d => d.properties[d2_.property] == dist2Select.node().value);
+    var feat2 = topojson.feature(distType2, distType2.objects.districts),
+        filtered2 = feat2.features.filter(d => d.properties.district == dist2Select.node().value);
 
     district2 = svg.selectAll("path.d2")
         .data(filtered2)
@@ -329,7 +324,7 @@ function drawMap(base, distType1, distType2) {
         d3.select(this).style("fill-opacity", 0.3);
 
         d3.select("#caption").html(baseSelect.node().value + " "
-          + d.properties[b_.property]
+          + d.properties.district
           + " overlaps with "
           + distType1Select.node().value + " "
           + dist1Select.node().value
@@ -345,7 +340,7 @@ function drawMap(base, distType1, distType2) {
       .data(intersections)
     .enter().append("text")
       .attr("text-anchor", "middle")
-      .text(d => d.properties[b_.property])
+      .text(d => d.properties.district)
       .style("font-size", "16px");*/
 
   // center map on feature
@@ -379,12 +374,8 @@ function projectPoint(x, y) {
 }
 
 function findIntersection(topo, propValue, className, rt, second) {
-  var d_ = second ? districts[distType2Select.node().value] : districts[distType1Select.node().value],
-      featName = d_.objects
-      propName = d_.property;
-
-  var feat = topojson.feature(topo, topo.objects[featName]),
-      filtered = feat.features.filter(d => d.properties[propName] == propValue);
+  var feat = topojson.feature(topo, topo.objects.districts),
+      filtered = feat.features.filter(d => d.properties.district == propValue);
 
   var searchPolygon = reader.read(filtered[0].geometry)
 
